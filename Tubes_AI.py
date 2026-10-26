@@ -50,7 +50,7 @@ def load_model():
 
 model = load_model()
 
-# 2. FUNGSI GAMBAR KOTAK & LOGIKA KEPARAHAN (DIOPTIMALKAN)
+# 2. FUNGSI GAMBAR KOTAK (DILEMAHKAN FILTERNYA AGAR APA PUN KETANGKAP)
 def draw_custom_boxes(frame, results):
     terjemahan = {
         "crack": "Retak", 
@@ -61,9 +61,7 @@ def draw_custom_boxes(frame, results):
     luas_layar = tinggi_layar * lebar_layar
     
     for r in results:
-        boxes = r.boxes
-        for box in boxes:
-            # Ambil koordinat, confidence, dan class ID dengan aman
+        for box in r.boxes:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             conf = float(box.conf[0])
             cls_id = int(box.cls[0])
@@ -73,25 +71,23 @@ def draw_custom_boxes(frame, results):
             persentase_ukuran = (luas_kotak / luas_layar) * 100
             nama_indo = terjemahan.get(nama_asli, nama_asli)
             
-            # Logika penyaringan
-            if nama_asli == "pothole":
-                if conf < 0.35: continue  # Diturunkan sedikit agar lebih peka
-                color = (0, 0, 255) # Merah (BGR)
+            # --- LOGIKA FLEKSIBEL (MENCEGAH ADA OBJEK YANG KELOLOS) ---
+            if "pothole" in nama_asli.lower() or "lubang" in nama_asli.lower():
+                color = (0, 0, 255) # Merah
                 status = "AWAS!"
-            elif nama_asli == "crack":
+            else:
+                # Semua jenis kerusakan lain (termasuk crack/retak) masuk sini
                 if persentase_ukuran >= 15.0:
                     color = (0, 255, 255) # Kuning
                     status = "Hati-hati"
                 else:
                     color = (0, 255, 0)   # Hijau
                     status = "Aman"
-            else:
-                continue
 
-            # Gambar Kotak di frame BGR
+            # Gambar Kotak
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
             
-            # Background teks agar mudah dibaca
+            # Background teks
             text = f"{nama_indo} {(conf*100):.0f}% - {status}"
             (text_width, text_height), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
             cv2.rectangle(frame, (x1, y1 - text_height - 10), (x1 + text_width, y1), color, -1)
@@ -99,14 +95,12 @@ def draw_custom_boxes(frame, results):
             
     return frame
 
-# 3. FUNGSI CALLBACK WEBRTC (KONVERSI WARNA DISEMPURNAKAN)
+# 3. FUNGSI CALLBACK WEBRTC
 def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
     img = frame.to_ndarray(format="bgr24")
     img_resized = cv2.resize(img, (800, 600))
-    
-    # Jalankan YOLO (YOLO secara internal menerima BGR atau RGB, tapi kita pastikan conf 0.30)
-    results = model(img_resized, imgsz=640, conf=0.30, verbose=False)
-    
+    # Threshold confidence diturunkan ke 0.25 supaya sangat sensitif
+    results = model(img_resized, imgsz=640, conf=0.25, verbose=False)
     img_annotated = draw_custom_boxes(img_resized, results)
     return av.VideoFrame.from_ndarray(img_annotated, format="bgr24")
 
@@ -179,7 +173,7 @@ with col_tengah:
                     break
                     
                 frame_resized = cv2.resize(frame, (800, 600))
-                results = model(frame_resized, imgsz=640, conf=0.30, verbose=False)
+                results = model(frame_resized, imgsz=640, conf=0.25, verbose=False)
                 frame_annotated = draw_custom_boxes(frame_resized, results)
                 
                 frame_rgb = cv2.cvtColor(frame_annotated, cv2.COLOR_BGR2RGB)
