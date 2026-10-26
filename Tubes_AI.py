@@ -50,48 +50,26 @@ def load_model():
 
 model = load_model()
 
-# 2. FUNGSI GAMBAR KOTAK (DILEMAHKAN FILTERNYA AGAR APA PUN KETANGKAP)
+# 2. FUNGSI DEBUG: MENAMPILKAN SEMUA YANG DILIHAT MODEL TANPA FILTER
 def draw_custom_boxes(frame, results):
-    terjemahan = {
-        "crack": "Retak", 
-        "pothole": "Lubang"
-    }
-    
-    tinggi_layar, lebar_layar, _ = frame.shape
-    luas_layar = tinggi_layar * lebar_layar
-    
     for r in results:
         for box in r.boxes:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             conf = float(box.conf[0])
             cls_id = int(box.cls[0])
-            nama_asli = r.names[cls_id]
             
-            luas_kotak = (x2 - x1) * (y2 - y1)
-            persentase_ukuran = (luas_kotak / luas_layar) * 100
-            nama_indo = terjemahan.get(nama_asli, nama_asli)
+            # Ambil nama kelas asli langsung dari model best.pt Anda
+            nama_asli = r.names.get(cls_id, str(cls_id))
             
-            # --- LOGIKA FLEKSIBEL (MENCEGAH ADA OBJEK YANG KELOLOS) ---
-            if "pothole" in nama_asli.lower() or "lubang" in nama_asli.lower():
-                color = (0, 0, 255) # Merah
-                status = "AWAS!"
-            else:
-                # Semua jenis kerusakan lain (termasuk crack/retak) masuk sini
-                if persentase_ukuran >= 15.0:
-                    color = (0, 255, 255) # Kuning
-                    status = "Hati-hati"
-                else:
-                    color = (0, 255, 0)   # Hijau
-                    status = "Aman"
-
-            # Gambar Kotak
+            # Gambar kotak merah untuk semua objek yang terdeteksi
+            color = (0, 0, 255) # Merah
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
             
-            # Background teks
-            text = f"{nama_indo} {(conf*100):.0f}% - {status}"
+            # Tampilkan nama asli kelas dan akurasinya di atas kotak
+            text = f"{nama_asli} ({conf*100:.1f}%)"
             (text_width, text_height), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
             cv2.rectangle(frame, (x1, y1 - text_height - 10), (x1 + text_width, y1), color, -1)
-            cv2.putText(frame, text, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0) if color != (0,0,255) else (255,255,255), 2)
+            cv2.putText(frame, text, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
             
     return frame
 
@@ -99,8 +77,8 @@ def draw_custom_boxes(frame, results):
 def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
     img = frame.to_ndarray(format="bgr24")
     img_resized = cv2.resize(img, (800, 600))
-    # Threshold confidence diturunkan ke 0.25 supaya sangat sensitif
-    results = model(img_resized, imgsz=640, conf=0.25, verbose=False)
+    # Konfidensi diturunkan sangat rendah (0.10) untuk uji coba
+    results = model(img_resized, imgsz=640, conf=0.10, verbose=False)
     img_annotated = draw_custom_boxes(img_resized, results)
     return av.VideoFrame.from_ndarray(img_annotated, format="bgr24")
 
@@ -122,10 +100,8 @@ with st.sidebar:
     pilihan_mode = st.radio("Pilih Sumber Video:", ("🔴 Live Camera (WebRTC)", "📂 Upload Video Lokal"))
     
     st.markdown("---")
-    st.subheader("📖 Indikator Sistem")
-    st.error("**🟥 Lubang (AWAS!)**\n\nBahaya tinggi, berpotensi merusak velg/ban.")
-    st.warning("**🟨 Retak (Hati-hati)**\n\nRetak memanjang >15%, kurangi kecepatan.")
-    st.success("**🟩 Retak (Aman)**\n\nRetak struktural minor.")
+    st.subheader("📖 Indikator Sistem (Debug Mode)")
+    st.info("⚠️ Menampilkan seluruh objek yang terbaca model.")
     
     st.markdown("---")
     st.caption("Dikembangkan oleh:")
@@ -168,12 +144,13 @@ with col_tengah:
             
             while cap.isOpened() and not tombol_stop:
                 ret, frame = cap.read()
+                
                 if not ret:
-                    st.success("✅ Analisis video selesai.")
-                    break
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    continue
                     
                 frame_resized = cv2.resize(frame, (800, 600))
-                results = model(frame_resized, imgsz=640, conf=0.25, verbose=False)
+                results = model(frame_resized, imgsz=640, conf=0.10, verbose=False)
                 frame_annotated = draw_custom_boxes(frame_resized, results)
                 
                 frame_rgb = cv2.cvtColor(frame_annotated, cv2.COLOR_BGR2RGB)
