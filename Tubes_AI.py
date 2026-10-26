@@ -50,9 +50,8 @@ def load_model():
 
 model = load_model()
 
-# 2. FUNGSI GAMBAR KOTAK & LOGIKA KEPARAHAN
+# 2. FUNGSI GAMBAR KOTAK & LOGIKA KEPARAHAN (DIOPTIMALKAN)
 def draw_custom_boxes(frame, results):
-    # Terjemahan murni bahasa Indonesia yang rapi
     terjemahan = {
         "crack": "Retak", 
         "pothole": "Lubang"
@@ -62,7 +61,9 @@ def draw_custom_boxes(frame, results):
     luas_layar = tinggi_layar * lebar_layar
     
     for r in results:
-        for box in r.boxes:
+        boxes = r.boxes
+        for box in boxes:
+            # Ambil koordinat, confidence, dan class ID dengan aman
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             conf = float(box.conf[0])
             cls_id = int(box.cls[0])
@@ -72,10 +73,10 @@ def draw_custom_boxes(frame, results):
             persentase_ukuran = (luas_kotak / luas_layar) * 100
             nama_indo = terjemahan.get(nama_asli, nama_asli)
             
-            # Logika penyaringan & status
+            # Logika penyaringan
             if nama_asli == "pothole":
-                if conf < 0.50: continue 
-                color = (0, 0, 255) # Merah
+                if conf < 0.35: continue  # Diturunkan sedikit agar lebih peka
+                color = (0, 0, 255) # Merah (BGR)
                 status = "AWAS!"
             elif nama_asli == "crack":
                 if persentase_ukuran >= 15.0:
@@ -87,7 +88,7 @@ def draw_custom_boxes(frame, results):
             else:
                 continue
 
-            # Gambar Kotak
+            # Gambar Kotak di frame BGR
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
             
             # Background teks agar mudah dibaca
@@ -98,11 +99,14 @@ def draw_custom_boxes(frame, results):
             
     return frame
 
-# 3. FUNGSI CALLBACK WEBRTC
+# 3. FUNGSI CALLBACK WEBRTC (KONVERSI WARNA DISEMPURNAKAN)
 def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
     img = frame.to_ndarray(format="bgr24")
     img_resized = cv2.resize(img, (800, 600))
-    results = model(img_resized, imgsz=640, conf=0.35)
+    
+    # Jalankan YOLO (YOLO secara internal menerima BGR atau RGB, tapi kita pastikan conf 0.30)
+    results = model(img_resized, imgsz=640, conf=0.30, verbose=False)
+    
     img_annotated = draw_custom_boxes(img_resized, results)
     return av.VideoFrame.from_ndarray(img_annotated, format="bgr24")
 
@@ -175,7 +179,7 @@ with col_tengah:
                     break
                     
                 frame_resized = cv2.resize(frame, (800, 600))
-                results = model(frame_resized, imgsz=640, conf=0.35)
+                results = model(frame_resized, imgsz=640, conf=0.30, verbose=False)
                 frame_annotated = draw_custom_boxes(frame_resized, results)
                 
                 frame_rgb = cv2.cvtColor(frame_annotated, cv2.COLOR_BGR2RGB)
