@@ -50,7 +50,7 @@ def load_model():
 
 model = load_model()
 
-# 2. FUNGSI GAMBAR KOTAK (MENYESUAIKAN UKURAN ASLI)
+# 2. FUNGSI GAMBAR KOTAK
 def draw_custom_boxes(frame, results):
     tinggi_layar, lebar_layar, _ = frame.shape
     luas_layar = tinggi_layar * lebar_layar
@@ -65,7 +65,6 @@ def draw_custom_boxes(frame, results):
             luas_kotak = (x2 - x1) * (y2 - y1)
             persentase_ukuran = (luas_kotak / luas_layar) * 100
             
-            # Logika pewarnaan
             if "pothole" in nama_asli.lower() or "lubang" in nama_asli.lower():
                 color = (0, 0, 255) # Merah
                 status = "AWAS!"
@@ -77,10 +76,8 @@ def draw_custom_boxes(frame, results):
                     color = (0, 255, 0)   # Hijau
                     status = "Aman"
 
-            # Gambar Kotak
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
             
-            # Teks
             text = f"{nama_asli} {(conf*100):.1f}% - {status}"
             (text_width, text_height), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
             cv2.rectangle(frame, (x1, y1 - text_height - 10), (x1 + text_width, y1), color, -1)
@@ -91,9 +88,9 @@ def draw_custom_boxes(frame, results):
 # 3. FUNGSI WEBRTC
 def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
     img = frame.to_ndarray(format="bgr24")
-    # Tanpa resize paksa agar resolusi kamera asli terjaga
-    results = model(img, imgsz=640, conf=0.15, verbose=False)
-    img_annotated = draw_custom_boxes(img, results)
+    img_resized = cv2.resize(img, (640, 480)) # Resize aman agar CPU tidak kelebihan beban
+    results = model(img_resized, imgsz=640, conf=0.20, verbose=False)
+    img_annotated = draw_custom_boxes(img_resized, results)
     return av.VideoFrame.from_ndarray(img_annotated, format="bgr24")
 
 
@@ -165,9 +162,10 @@ with col_tengah:
                     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     continue
                     
-                # Menggunakan frame asli tanpa resize, agar detail retakan tipis tidak hilang
-                results = model(frame, imgsz=640, conf=0.15, verbose=False)
-                frame_annotated = draw_custom_boxes(frame, results)
+                # Resize sedang (640x480) agar CPU Streamlit aman dan tidak ter-throttle lagi
+                frame_resized = cv2.resize(frame, (640, 480))
+                results = model(frame_resized, imgsz=640, conf=0.20, verbose=False)
+                frame_annotated = draw_custom_boxes(frame_resized, results)
                 
                 frame_rgb = cv2.cvtColor(frame_annotated, cv2.COLOR_BGR2RGB)
                 stframe.image(frame_rgb, channels="RGB", use_container_width=True)
