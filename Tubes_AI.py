@@ -5,22 +5,20 @@ from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
 import av
 import tempfile 
 
-# 0. KONFIGURASI HALAMAN (Wajib ditaruh paling atas)
+# 0. KONFIGURASI HALAMAN
 st.set_page_config(
     page_title="SAPA-Jalan AI",
     page_icon="🛣️",
     layout="wide" 
 )
 
-# --- KUSTOMISASI CSS (DIPERBAIKI & DIPERCANTIK) ---
+# --- KUSTOMISASI CSS ---
 st.markdown("""
     <style>
-    /* Sembunyikan menu bawaan, TAPI biarkan header transparan agar tombol sidebar TIDAK HILANG */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {background-color: transparent !important;}
     
-    /* Box untuk Judul Utama */
     .title-box {
         background-color: #1a1c24;
         padding: 25px;
@@ -54,7 +52,12 @@ model = load_model()
 
 # 2. FUNGSI GAMBAR KOTAK & LOGIKA KEPARAHAN
 def draw_custom_boxes(frame, results):
-    terjemahan = {"crack": "Retakan", "pothole": "Lubang"}
+    # Terjemahan murni bahasa Indonesia yang rapi
+    terjemahan = {
+        "crack": "Retak", 
+        "pothole": "Lubang"
+    }
+    
     tinggi_layar, lebar_layar, _ = frame.shape
     luas_layar = tinggi_layar * lebar_layar
     
@@ -69,9 +72,9 @@ def draw_custom_boxes(frame, results):
             persentase_ukuran = (luas_kotak / luas_layar) * 100
             nama_indo = terjemahan.get(nama_asli, nama_asli)
             
-            # Logika penyaringan
+            # Logika penyaringan & status
             if nama_asli == "pothole":
-                if conf < 0.65: continue 
+                if conf < 0.50: continue 
                 color = (0, 0, 255) # Merah
                 status = "AWAS!"
             elif nama_asli == "crack":
@@ -84,7 +87,7 @@ def draw_custom_boxes(frame, results):
             else:
                 continue
 
-            # Gambar Kotak lebih tebal untuk UI proper
+            # Gambar Kotak
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
             
             # Background teks agar mudah dibaca
@@ -99,7 +102,7 @@ def draw_custom_boxes(frame, results):
 def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
     img = frame.to_ndarray(format="bgr24")
     img_resized = cv2.resize(img, (800, 600))
-    results = model(img_resized, imgsz=640, conf=0.45)
+    results = model(img_resized, imgsz=640, conf=0.35)
     img_annotated = draw_custom_boxes(img_resized, results)
     return av.VideoFrame.from_ndarray(img_annotated, format="bgr24")
 
@@ -107,8 +110,6 @@ def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
 # ==========================================
 # 4. TAMPILAN ANTARMUKA (USER INTERFACE)
 # ==========================================
-
-# Banner Judul
 st.markdown("""
     <div class="title-box">
         <h1 class="main-title">🛣️ SAPA-Jalan AI</h1>
@@ -116,22 +117,22 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# --- SIDEBAR (Panel Kiri) ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.image("logo unsika.png", width=100)  
+    st.image("logo unsika.png", width=100)
     st.header("⚙️ Konfigurasi Sistem")
     pilihan_mode = st.radio("Pilih Sumber Video:", ("🔴 Live Camera (WebRTC)", "📂 Upload Video Lokal"))
     
     st.markdown("---")
     st.subheader("📖 Indikator Sistem")
     st.error("**🟥 Lubang (AWAS!)**\n\nBahaya tinggi, berpotensi merusak velg/ban.")
-    st.warning("**🟨 Retakan (Hati-hati)**\n\nRetakan memanjang >15%, kurangi kecepatan.")
-    st.success("**🟩 Retakan (Aman)**\n\nRetakan struktural minor.")
+    st.warning("**🟨 Retak (Hati-hati)**\n\nRetak memanjang >15%, kurangi kecepatan.")
+    st.success("**🟩 Retak (Aman)**\n\nRetak struktural minor.")
     
     st.markdown("---")
     st.caption("Dikembangkan oleh:")
-    st.write("**KELOMPOK 8 KECERDASAN BUATAN**")
-    st.write("Teknik Elektro Unsika")
+    st.write("**Vincensius Vikario Ventura**")
+    st.write("2410631160038 - Teknik Elektro")
 
 # --- AREA UTAMA ---
 col_kiri, col_tengah, col_kanan = st.columns([1, 8, 1])
@@ -174,7 +175,7 @@ with col_tengah:
                     break
                     
                 frame_resized = cv2.resize(frame, (800, 600))
-                results = model(frame_resized, imgsz=640, conf=0.45)
+                results = model(frame_resized, imgsz=640, conf=0.35)
                 frame_annotated = draw_custom_boxes(frame_resized, results)
                 
                 frame_rgb = cv2.cvtColor(frame_annotated, cv2.COLOR_BGR2RGB)
