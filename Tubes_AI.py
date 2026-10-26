@@ -1,6 +1,8 @@
 import cv2
 import streamlit as st
 from ultralytics import YOLO
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
+import av
 import tempfile 
 
 # 0. KONFIGURASI HALAMAN
@@ -83,6 +85,15 @@ def draw_custom_boxes(frame, results):
             
     return frame
 
+# 3. FUNGSI CALLBACK WEBRTC (KAMERA LANGSUNG)
+def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
+    img = frame.to_ndarray(format="bgr24")
+    img_resized = cv2.resize(img, (640, 480))
+    results = model(img_resized, imgsz=640, conf=0.15, verbose=False)
+    img_annotated = draw_custom_boxes(img_resized, results)
+    return av.VideoFrame.from_ndarray(img_annotated, format="bgr24")
+
+
 # ==========================================
 # 4. TAMPILAN ANTARMUKA
 # ==========================================
@@ -97,7 +108,7 @@ st.markdown("""
 with st.sidebar:
     st.image("logo unsika.png", width=100)
     st.header("⚙️ Konfigurasi Sistem")
-    pilihan_mode = st.radio("Pilih Sumber:", ("🔴 Live DroidCam (IP WiFi)", "📂 Upload Video Lokal"))
+    pilihan_mode = st.radio("Pilih Sumber Video:", ("🔴 Live Camera (Webcam)", "📂 Upload Video Lokal"))
     
     st.markdown("---")
     st.subheader("📖 Indikator Sistem")
@@ -107,44 +118,28 @@ with st.sidebar:
     
     st.markdown("---")
     st.caption("Dikembangkan oleh:")
-    st.write("**Vincensius Vikario Ventura**")
-    st.write("2410631160038 - Teknik Elektro")
+    st.write("**Kelompok 8 Kecerdasan Buatan**")
+    st.write("Teknik Elektro Unsika")
 
 # --- AREA UTAMA ---
 col_kiri, col_tengah, col_kanan = st.columns([1, 8, 1])
 
 with col_tengah:
-    if pilihan_mode == "🔴 Live DroidCam (IP WiFi)":
-        st.info("💡 **Petunjuk:** Masukkan IP Address DroidCam dari HP lu di bawah ini, lalu klik tombol **START**.")
+    if pilihan_mode == "🔴 Live Camera (Webcam)":
+        st.info("💡 **Petunjuk:** Berikan izin akses kamera pada browser, lalu klik tombol **START**.")
         
-        # Kotak input IP Address DroidCam
-        ip_input = st.text_input("Masukkan IP DroidCam (Contoh: http://192.168.1.12:4747/video):", "http://192.168.1.")
+        rtc_conf = RTCConfiguration(
+            {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+        )
         
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            mulai_streaming = st.button("▶️ START CAMERA", use_container_width=True)
-        with col_btn2:
-            stop_streaming = st.button("⏹️ STOP CAMERA", use_container_width=True)
-            
-        stframe = st.empty()
-        
-        if mulai_streaming and not stop_streaming:
-            cap = cv2.VideoCapture(ip_input)
-            
-            while cap.isOpened():
-                ret, frame = cap.read()
-                if not ret:
-                    st.error("❌ Gagal terhubung ke DroidCam. Pastikan IP Address benar dan HP & laptop dalam satu WiFi!")
-                    break
-                    
-                frame_resized = cv2.resize(frame, (640, 480))
-                results = model(frame_resized, imgsz=640, conf=0.20, verbose=False)
-                frame_annotated = draw_custom_boxes(frame_resized, results)
-                
-                frame_rgb = cv2.cvtColor(frame_annotated, cv2.COLOR_BGR2RGB)
-                stframe.image(frame_rgb, channels="RGB", use_container_width=True)
-                
-            cap.release()
+        webrtc_streamer(
+            key="sapa-jalan-live-webcam",
+            mode=WebRtcMode.SENDRECV,
+            rtc_configuration=rtc_conf,
+            video_frame_callback=video_frame_callback,
+            media_stream_constraints={"video": True, "audio": False},
+            async_processing=True,
+        )
 
     elif pilihan_mode == "📂 Upload Video Lokal":
         st.info("💡 **Petunjuk:** Unggah video rekaman jalan raya dari memori perangkat.")
@@ -168,7 +163,7 @@ with col_tengah:
                     continue
                     
                 frame_resized = cv2.resize(frame, (640, 480))
-                results = model(frame_resized, imgsz=640, conf=0.20, verbose=False)
+                results = model(frame_resized, imgsz=640, conf=0.15, verbose=False)
                 frame_annotated = draw_custom_boxes(frame_resized, results)
                 
                 frame_rgb = cv2.cvtColor(frame_annotated, cv2.COLOR_BGR2RGB)
