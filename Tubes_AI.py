@@ -89,7 +89,7 @@ def draw_custom_boxes(frame, results):
 def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
     img = frame.to_ndarray(format="bgr24")
     img_resized = cv2.resize(img, (640, 480))
-    results = model(img_resized, imgsz=640, conf=0.15, verbose=False)
+    results = model(img_resized, imgsz=640, conf=0.50, verbose=False)
     img_annotated = draw_custom_boxes(img_resized, results)
     return av.VideoFrame.from_ndarray(img_annotated, format="bgr24")
 
