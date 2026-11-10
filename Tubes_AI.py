@@ -1,8 +1,6 @@
 import cv2
 import streamlit as st
 from ultralytics import YOLO
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
-import av
 import tempfile 
 
 # 0. KONFIGURASI HALAMAN
@@ -50,7 +48,7 @@ def load_model():
 
 model = load_model()
 
-# 2. FUNGSI GAMBAR KOTAK
+# 2. FUNGSI GAMBAR KOTAK (FILTER SENSITIF & AKURAT)
 def draw_custom_boxes(frame, results):
     tinggi_layar, lebar_layar, _ = frame.shape
     luas_layar = tinggi_layar * lebar_layar
@@ -65,6 +63,7 @@ def draw_custom_boxes(frame, results):
             luas_kotak = (x2 - x1) * (y2 - y1)
             persentase_ukuran = (luas_kotak / luas_layar) * 100
             
+            # Logika klasifikasi
             if "pothole" in nama_asli.lower() or "lubang" in nama_asli.lower():
                 color = (0, 0, 255) # Merah
                 status = "AWAS!"
@@ -76,8 +75,10 @@ def draw_custom_boxes(frame, results):
                     color = (0, 255, 0)   # Hijau
                     status = "Aman"
 
+            # Menggambar kotak
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
             
+            # Label dengan background
             text = f"{nama_asli} {(conf*100):.1f}% - {status}"
             (text_width, text_height), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
             cv2.rectangle(frame, (x1, y1 - text_height - 10), (x1 + text_width, y1), color, -1)
@@ -85,17 +86,8 @@ def draw_custom_boxes(frame, results):
             
     return frame
 
-# 3. FUNGSI CALLBACK WEBRTC (KAMERA LANGSUNG)
-def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
-    img = frame.to_ndarray(format="bgr24")
-    img_resized = cv2.resize(img, (640, 480))
-    results = model(img_resized, imgsz=640, conf=0.50, verbose=False)
-    img_annotated = draw_custom_boxes(img_resized, results)
-    return av.VideoFrame.from_ndarray(img_annotated, format="bgr24")
-
-
 # ==========================================
-# 4. TAMPILAN ANTARMUKA
+# 3. TAMPILAN ANTARMUKA
 # ==========================================
 st.markdown("""
     <div class="title-box">
@@ -108,7 +100,7 @@ st.markdown("""
 with st.sidebar:
     st.image("logo unsika.png", width=100)
     st.header("⚙️ Konfigurasi Sistem")
-    pilihan_mode = st.radio("Pilih Sumber Video:", ("🔴 Live Camera (Webcam)", "📂 Upload Video Lokal"))
+    pilihan_mode = st.radio("Pilih Sumber Video:", ("🔴 Live DroidCam (IP WiFi)", "📂 Upload Video Lokal"))
     
     st.markdown("---")
     st.subheader("📖 Indikator Sistem")
@@ -118,28 +110,40 @@ with st.sidebar:
     
     st.markdown("---")
     st.caption("Dikembangkan oleh:")
-    st.write("**Kelompok 8 Kecerdasan Buatan**")
-    st.write("Teknik Elektro Unsika")
+    st.write("**Vincensius Vikario Ventura**")
+    st.write("2410631160038 - Teknik Elektro")
 
 # --- AREA UTAMA ---
 col_kiri, col_tengah, col_kanan = st.columns([1, 8, 1])
 
 with col_tengah:
-    if pilihan_mode == "🔴 Live Camera (Webcam)":
-        st.info("💡 **Petunjuk:** Berikan izin akses kamera pada browser, lalu klik tombol **START**.")
+    if pilihan_mode == "🔴 Live DroidCam (IP WiFi)":
+        st.info("💡 **Petunjuk:** Masukkan IP Address DroidCam dari HP Anda, pastikan HP dan Laptop di WiFi yang sama.")
         
-        rtc_conf = RTCConfiguration(
-            {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
-        )
+        ip_input = st.text_input("Masukkan IP DroidCam:", "http://192.168.1.38:4747/video")
+        run_camera = st.checkbox("▶️ Mulai Stream DroidCam")
         
-        webrtc_streamer(
-            key="sapa-jalan-live-webcam",
-            mode=WebRtcMode.SENDRECV,
-            rtc_configuration=rtc_conf,
-            video_frame_callback=video_frame_callback,
-            media_stream_constraints={"video": True, "audio": False},
-            async_processing=True,
-        )
+        stframe = st.empty()
+        
+        if run_camera:
+            cap = cv2.VideoCapture(ip_input)
+            
+            while cap.isOpened() and run_camera:
+                ret, frame = cap.read()
+                if not ret:
+                    st.error("❌ Gagal terhubung ke DroidCam. Cek kembali IP Address atau koneksi WiFi Anda.")
+                    break
+                    
+                frame_resized = cv2.resize(frame, (640, 480))
+                
+                # Confidence 0.45 agar AI tidak ngawur mendeteksi mangkok/objek random
+                results = model(frame_resized, imgsz=640, conf=0.45, verbose=False)
+                frame_annotated = draw_custom_boxes(frame_resized, results)
+                
+                frame_rgb = cv2.cvtColor(frame_annotated, cv2.COLOR_BGR2RGB)
+                stframe.image(frame_rgb, channels="RGB", use_container_width=True)
+                
+            cap.release()
 
     elif pilihan_mode == "📂 Upload Video Lokal":
         st.info("💡 **Petunjuk:** Unggah video rekaman jalan raya dari memori perangkat.")
@@ -159,11 +163,13 @@ with col_tengah:
                 ret, frame = cap.read()
                 
                 if not ret:
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0) # Auto-loop
                     continue
                     
                 frame_resized = cv2.resize(frame, (640, 480))
-                results = model(frame_resized, imgsz=640, conf=0.15, verbose=False)
+                
+                # Confidence 0.45
+                results = model(frame_resized, imgsz=640, conf=0.45, verbose=False)
                 frame_annotated = draw_custom_boxes(frame_resized, results)
                 
                 frame_rgb = cv2.cvtColor(frame_annotated, cv2.COLOR_BGR2RGB)
