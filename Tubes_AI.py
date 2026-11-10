@@ -1,9 +1,9 @@
 import cv2
 import streamlit as st
 from ultralytics import YOLO
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
+import av
 import tempfile 
-import numpy as np
-from PIL import Image
 
 # 0. KONFIGURASI HALAMAN
 st.set_page_config(
@@ -50,7 +50,7 @@ def load_model():
 
 model = load_model()
 
-# 2. FUNGSI GAMBAR KOTAK (AKURAT)
+# 2. FUNGSI GAMBAR KOTAK (AKURAT & RINGAN)
 def draw_custom_boxes(frame, results):
     tinggi_layar, lebar_layar, _ = frame.shape
     luas_layar = tinggi_layar * lebar_layar
@@ -85,8 +85,18 @@ def draw_custom_boxes(frame, results):
             
     return frame
 
+# 3. CALLBACK WEBRTC UNTUK STREAMING
+def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
+    img = frame.to_ndarray(format="bgr24")
+    # Resize dikecilin ke 480x360 biar streaming di Cloud lebih ngebut & ngurangin lag
+    img_resized = cv2.resize(img, (480, 360))
+    results = model(img_resized, imgsz=480, conf=0.45, verbose=False)
+    img_annotated = draw_custom_boxes(img_resized, results)
+    return av.VideoFrame.from_ndarray(img_annotated, format="bgr24")
+
+
 # ==========================================
-# 3. TAMPILAN ANTARMUKA CLOUD MOBILE
+# 4. TAMPILAN ANTARMUKA
 # ==========================================
 st.markdown("""
     <div class="title-box">
@@ -98,7 +108,7 @@ st.markdown("""
 with st.sidebar:
     st.image("logo unsika.png", width=100)
     st.header("⚙️ Konfigurasi Sistem")
-    pilihan_mode = st.radio("Pilih Sumber AI:", ("📷 Jepret Kamera HP", "🎥 Rekam / Upload Video"))
+    pilihan_mode = st.radio("Pilih Sumber Video:", ("🔴 Live Camera (HP/Webcam)", "📂 Upload Video Lokal"))
     
     st.markdown("---")
     st.subheader("📖 Indikator Sistem")
@@ -114,28 +124,27 @@ with st.sidebar:
 col_kiri, col_tengah, col_kanan = st.columns([1, 8, 1])
 
 with col_tengah:
-    if pilihan_mode == "📷 Jepret Kamera HP":
-        st.info("💡 **Petunjuk:** Klik tombol kamera di bawah menggunakan HP Anda untuk memotret jalan secara langsung.")
+    if pilihan_mode == "🔴 Live Camera (HP/Webcam)":
+        st.info("💡 **Petunjuk:** Buka web ini di HP, izinkan akses kamera, klik START, dan sorot jalanan.")
         
-        foto = st.camera_input("Ambil Foto Jalan:")
+        rtc_conf = RTCConfiguration(
+            {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+        )
         
-        if foto is not None:
-            # Konversi foto ke format OpenCV
-            image = Image.open(foto)
-            frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-            
-            # Analisis AI
-            with st.spinner("AI sedang menganalisis retakan..."):
-                results = model(frame, imgsz=640, conf=0.45, verbose=False)
-                frame_annotated = draw_custom_boxes(frame, results)
-                
-            frame_rgb = cv2.cvtColor(frame_annotated, cv2.COLOR_BGR2RGB)
-            st.image(frame_rgb, caption="Hasil Analisis AI", use_container_width=True)
+        webrtc_streamer(
+            key="sapa-jalan-mobile-stream",
+            mode=WebRtcMode.SENDRECV,
+            rtc_configuration=rtc_conf,
+            video_frame_callback=video_frame_callback,
+            # KUNCI UTAMA: Memaksa web untuk membuka KAMERA BELAKANG HP ("facingMode": "environment")
+            media_stream_constraints={"video": {"facingMode": "environment"}, "audio": False},
+            async_processing=True,
+        )
 
-    elif pilihan_mode == "🎥 Rekam / Upload Video":
-        st.info("💡 **Petunjuk Buka di HP:** Klik tombol 'Browse files' di bawah, lalu pilih menu **Kamera/Record Video** di HP lu untuk merekam langsung!")
+    elif pilihan_mode == "📂 Upload Video Lokal":
+        st.info("💡 **Petunjuk:** Unggah video rekaman jalan raya dari memori perangkat.")
         
-        file_video = st.file_uploader("Upload atau Rekam Video", type=["mp4", "avi", "mov"])
+        file_video = st.file_uploader("", type=["mp4", "avi", "mov"])
         
         if file_video is not None:
             tfile = tempfile.NamedTemporaryFile(delete=False) 
@@ -145,21 +154,18 @@ with col_tengah:
             stframe = st.empty()
             tombol_stop = st.button("⏹️ Hentikan Analisis Video", use_container_width=True)
             
-            with st.spinner("Memproses video..."):
-                while cap.isOpened() and not tombol_stop:
-                    ret, frame = cap.read()
-                    if not ret:
-                        break # Video berhenti di akhir, menghemat beban server cloud
-                        
-                    # Resize ringan
-                    frame_resized = cv2.resize(frame, (640, 480))
+            while cap.isOpened() and not tombol_stop:
+                ret, frame = cap.read()
+                
+                if not ret:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    continue
                     
-                    # Analisis AI
-                    results = model(frame_resized, imgsz=480, conf=0.45, verbose=False)
-                    frame_annotated = draw_custom_boxes(frame_resized, results)
-                    
-                    frame_rgb = cv2.cvtColor(frame_annotated, cv2.COLOR_BGR2RGB)
-                    stframe.image(frame_rgb, channels="RGB", use_container_width=True)
-                    
+                frame_resized = cv2.resize(frame, (640, 480))
+                results = model(frame_resized, imgsz=640, conf=0.45, verbose=False)
+                frame_annotated = draw_custom_boxes(frame_resized, results)
+                
+                frame_rgb = cv2.cvtColor(frame_annotated, cv2.COLOR_BGR2RGB)
+                stframe.image(frame_rgb, channels="RGB", use_container_width=True)
+                
             cap.release()
-            st.success("✅ Analisis Video Selesai!")
